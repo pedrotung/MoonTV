@@ -15,6 +15,46 @@ interface ApiSearchItem {
   type_name?: string;
 }
 
+/**
+ * 标题归一化：忽略空白与大小写，与网页端播放页的匹配规则一致
+ * （如豆瓣「流人 第六季」与源站「流人第六季」视为同一标题）
+ */
+export function normalizeTitle(title: string): string {
+  return title.replace(/\s+/g, '').toLowerCase();
+}
+
+/**
+ * 在 searchFromApi 基础上，查询含空格时再用去空格版本搜索一次并按 id 去重，
+ * 因为部分源站（如如意资源）搜索不忽略空格。
+ * 标题与查询仅空格不同的结果，其 title 统一改写为查询词，
+ * 以便 OrionTV 等按标题严格相等过滤的客户端也能匹配。
+ */
+export async function searchFromApiIgnoringSpaces(
+  apiSite: ApiSite,
+  query: string
+): Promise<SearchResult[]> {
+  const stripSpaces = (s: string) => s.replace(/\s+/g, '');
+  const queries = [query];
+  if (/\s/.test(query)) {
+    queries.push(stripSpaces(query));
+  }
+  const results = (
+    await Promise.all(queries.map((q) => searchFromApi(apiSite, q)))
+  ).flat();
+
+  const strippedQuery = stripSpaces(query);
+  const seenIds = new Set<string>();
+  return results
+    .filter((r) => {
+      if (seenIds.has(r.id)) return false;
+      seenIds.add(r.id);
+      return true;
+    })
+    .map((r) =>
+      stripSpaces(r.title) === strippedQuery ? { ...r, title: query } : r
+    );
+}
+
 export async function searchFromApi(
   apiSite: ApiSite,
   query: string
