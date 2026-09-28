@@ -42,8 +42,26 @@ export async function GET(request: Request) {
       );
     }
 
-    const results = await searchFromApi(targetSite, query);
-    let result = results.filter((r) => r.title === query);
+    // 标题比较忽略空白与大小写，与网页端播放页一致（如豆瓣「流人 第六季」与源站「流人第六季」）
+    const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+    const normalizedQuery = normalize(query);
+
+    // 部分源站搜索不会忽略空格，带空格的查询需再用去空格版本搜索一次
+    const queries = [query];
+    if (/\s/.test(query)) {
+      queries.push(query.replace(/\s+/g, ''));
+    }
+    const results = (
+      await Promise.all(queries.map((q) => searchFromApi(targetSite, q)))
+    ).flat();
+    const seenIds = new Set<string>();
+    let result = results.filter((r) => {
+      if (normalize(r.title) !== normalizedQuery || seenIds.has(r.id)) {
+        return false;
+      }
+      seenIds.add(r.id);
+      return true;
+    });
     if (!config.SiteConfig.DisableYellowFilter) {
       result = result.filter((result) => {
         const typeName = result.type_name || '';
